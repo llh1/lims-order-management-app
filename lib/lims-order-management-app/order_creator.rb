@@ -1,78 +1,65 @@
 require 'common'
 require 'lims-order-management-app/helpers/api'
+require 'lims-order-management-app/rule_matcher'
 
 module Lims::OrderManagementApp
   class OrderCreator
     include Virtus
     include Aequitas
     include Helpers::API
+    include Lims::OrderManagementApp::RuleMatcher
 
-    TubeNotFound = Class.new(StandardError)
+    SampleContainerNotFound = Class.new(StandardError)
 
-    attribute :input_tube_role, String, :required => true, :writer => :private
-    attribute :user_uuid, String, :required => true, :writer => :private
+    attribute :user_email, String, :required => true, :writer => :private
     attribute :study_uuid, String, :required => true, :writer => :private
     attribute :cost_code, String, :required => true, :writer => :private
 
     # @param [Hash] api_settings
-    def initialize(order_settings, api_settings)
+    def initialize(order_settings, api_settings, rule_settings)
       url = api_settings["url"]      
-      @input_tube_role = order_settings["input_tube_role"]
-      @user_uuid = order_settings["user_uuid"]
+      @user_email = order_settings["user_email"]
       @study_uuid = order_settings["study_uuid"]
       @cost_code = order_settings["cost_code"]
-      initialize_api(url)
+      initialize_api(url, @user_email)
+      initialize_rules(rule_settings)
     end
 
     # @param [Array] samples
-    # @param [String] pipeline
-    def execute(samples, pipeline)
-      sample_uuids = samples.inject([]) { |m,e| m << e[:uuid] }
-      tube_uuids = tubes_by_sample_uuids(sample_uuids)
-      order_parameters = generate_order_parameters(tube_uuids, pipeline)
+    def create!(samples)
+      container_roles = container_roles(samples)
+      order_parameters = order_parameters(container_roles)
       post_order(order_parameters)
     end
 
     private
 
-    # @param [String] sample_uuids
-    # @return [Array]
-    # Return an array of tube uuids which contain the samples.
-    def tubes_by_sample_uuids(sample_uuids)
-      parameters = {:search => {
-        :description => "search for tubes by sample uuids",
-        :model => "tube",
-        :criteria => {
-          :sample => {:uuid => sample_uuids}
-        }
-      }}
-      search = post(url_for(:searches, :create), parameters)
-      result_url = search["search"]["actions"]["first"]
-      result = get(result_url)
-
-      sample_uuids_in_tubes = [].tap do |uuids|
-        result["tubes"].each do |tube|
-          tube["aliquots"].each do |aliquot|
-            uuids << aliquot["sample"]["uuid"]
+    # @param [Array] samples
+    # @return [Hash] 
+    # @example: {"11111111-2222-3333-4444-555555555555" => "role"}
+    def container_roles(samples)
+      {}.tap do |result|
+        samples.each do |sample_data|
+          matching_rule(sample_data[:sample]).each do |container_uuid, role|
+            result[container_uuid] = role unless result.has_key?(container_uuid)
           end
         end
-      end.uniq
-
-      orphan_sample_uuids = sample_uuids - sample_uuids_in_tubes
-      raise TubeNotFound, "Can't find a tube containing the samples #{orphan_sample_uuids.to_s}" unless orphan_sample_uuids.empty? 
-      result["tubes"].inject([]) { |m,e| m << e["uuid"]}
+      end
     end
 
-    # @param [Array] tube_uuids
-    # @param [String] pipeline
+    # @param [Hash] container_roles
     # @return [Hash]
-    def generate_order_parameters(tube_uuids, pipeline)
+    def order_parameters(container_roles)
+      roles_to_container_uuids = container_roles.inject(Hash.new { |h,k| h[k] = [] }) do |m,(k,v)|
+        m[v] << k
+        m
+      end
+
       {:order => {}.tap do |p|
-        p[:user_uuid] = user_uuid 
         p[:study_uuid] = study_uuid 
-        p[:pipeline] = pipeline
+        p[:pipeline] = 'Samples'
         p[:cost_code] = cost_code 
-        p[:sources] = {input_tube_role => tube_uuids}
+        p[:sources] = roles_to_container_uuids
       end
       }
     end

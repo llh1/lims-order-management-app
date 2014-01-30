@@ -69,5 +69,16 @@ module Lims::OrderManagementApp
         SampleJsonDecoder::BulkSampleDecoder.call("bulk_update_sample", json)
       end
     end
+
+    module SampleCollectionDecoder
+      def self.call(json)
+        samples_hash = json["sample_collection"]["samples"]
+        samples = []
+        samples_hash.each do |sample_hash|
+          samples << SampleJsonDecoder::SampleDecoder.sample(sample_hash)
+        end
+        samples
+      end
+    end
   end
 end

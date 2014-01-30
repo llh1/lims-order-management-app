@@ -7,7 +7,7 @@ module Lims::OrderManagementApp
       Lims::OrderManagementApp::OrderCreator.any_instance.stub(:initialize_api)
     end
 
-    let(:consumer) { described_class.new({}, {}, {}) }
+    let(:consumer) { described_class.new({}, {}, {}, {}) }
 
     context "draft samples" do
       let(:samples) do 

@@ -2,12 +2,9 @@ require 'lims-busclient'
 require 'common'
 require 'lims-order-management-app/sample_json_decoder'
 require 'lims-order-management-app/order_creator'
-require 'lims-order-management-app/rule_matcher'
-
 module Lims::OrderManagementApp
   class SampleConsumer
     include Lims::BusClient::Consumer
-    include RuleMatcher
     include SampleJsonDecoder
     include Virtus
     include Aequitas
@@ -21,13 +18,14 @@ module Lims::OrderManagementApp
     SAMPLE_PUBLISHED_STATE = "published"
     EXPECTED_ROUTING_KEY_PATTERNS = [
       '*.*.sample.create', '*.*.sample.updatesample', 
-      '*.*.bulkcreatesample.*', '*.*.bulkupdatesample.*' 
+      '*.*.bulkcreatesample.*', '*.*.bulkupdatesample.*',
+      '*.*.samplecollection.*'
     ].map { |k| Regexp.new(k.gsub(/\./, "\\.").gsub(/\*/, "[^\.]*")) }
 
-    def initialize(order_settings, amqp_settings, api_settings)
+    def initialize(order_settings, amqp_settings, api_settings, rule_settings)
       @queue_name = amqp_settings.delete("queue_name")
       consumer_setup(amqp_settings)
-      @order_creator = OrderCreator.new(order_settings, api_settings)
+      @order_creator = OrderCreator.new(order_settings, api_settings, rule_settings)
       set_queue
     end
 
@@ -66,14 +64,11 @@ module Lims::OrderManagementApp
       begin
         samples = sample_resource(payload)
         before_filter!(samples)
-        # TODO: we assume hereby that all the samples 
-        # have the same sample_type and the same lysed option.
-        pipeline = matching_rule(samples.first[:sample])
-        order_creator.execute(samples, pipeline)
+        order_creator.create!(samples)
       rescue NoSamplePublished, RuleMatcher::NoMatchingRule => e
         metadata.reject
         log.error("Sample message rejected: #{e}")
-      rescue OrderCreator::TubeNotFound => e
+      rescue OrderCreator::SampleContainerNotFound => e
         metadata.reject(:requeue => true)
         log.error("Sample message requeued: #{e}")
       else

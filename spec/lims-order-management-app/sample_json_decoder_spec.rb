@@ -18,6 +18,10 @@ module Lims::OrderManagementApp
         decoder.sample_decoder_for("bulk_update_sample").should == SampleJsonDecoder::BulkUpdateSampleDecoder
       end
 
+      it "gets the right decoder for a sample collection message" do
+        decoder.sample_decoder_for("sample_collection").should == SampleJsonDecoder::SampleCollectionDecoder
+      end
+
       it "raises an exception if for a unknown decoder" do
         expect do
           decoder.sample_decoder_for("dummy")

@@ -9,12 +9,12 @@ module Lims::OrderManagementApp
 
       module Request
         def get(url)
-          response = RestClient.get(url, HEADERS)
+          response = RestClient.get(url, HEADERS.merge(extra_headers))
           JSON.parse(response)
         end
 
         def post(url, parameters)
-          response = RestClient.post(url, parameters.to_json, HEADERS)
+          response = RestClient.post(url, parameters.to_json, HEADERS.merge(extra_headers))
           JSON.parse(response)
         end
       end
@@ -23,11 +23,15 @@ module Lims::OrderManagementApp
       def self.included(klass)
         klass.class_eval do
           attribute :root, String, :required => true, :writer => :private, :reader => :private
+          attribute :extra_headers, Hash, :required => true, :writer => :private, :default => {}
         end
       end
 
-      def initialize_api(root_url)
-        @root = get(root_url)        
+      # According to RestClient documentation, it is necessary 
+      # to set multipart to true when sending custom headers.
+      def initialize_api(root_url, user_email)
+        @extra_headers = {"user-email" => user_email, "multipart" => true}
+        @root = get(root_url)
       end
 
       def url_for(model, action)
